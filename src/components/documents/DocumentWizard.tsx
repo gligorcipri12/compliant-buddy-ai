@@ -11,11 +11,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { 
-  FileText, Building, Briefcase, Eye, Check, Download, ArrowLeft, Loader2
+  FileText, Building, Briefcase, Eye, Check, Download, ArrowLeft, Loader2, Save
 } from "lucide-react";
 import { documentTemplates, type CompanyData } from "@/lib/pdf/documentTemplates";
 import { generateDocument } from "@/lib/pdf/pdfGenerator";
 import { toast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
 
 interface DocumentWizardProps {
   documentId: string;
@@ -33,6 +35,7 @@ const formSteps = [
 const DocumentWizard = ({ documentId, documentName, onBack }: DocumentWizardProps) => {
   const [currentStep, setCurrentStep] = useState(2);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [companyData, setCompanyData] = useState<CompanyData>({
     companyName: "",
     cui: "",
@@ -43,6 +46,7 @@ const DocumentWizard = ({ documentId, documentName, onBack }: DocumentWizardProp
     phone: "",
   });
   const [extraData, setExtraData] = useState<Record<string, string>>({});
+  const { user } = useAuth();
 
   const template = documentTemplates[documentId];
 
@@ -68,6 +72,45 @@ const DocumentWizard = ({ documentId, documentName, onBack }: DocumentWizardProp
     }
   };
 
+  const handleSaveDocument = async () => {
+    if (!user) {
+      toast({
+        title: "Autentificare necesară",
+        description: "Te rugăm să te autentifici pentru a salva documentele.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSaving(true);
+
+    try {
+      const { error } = await supabase.from("saved_documents").insert([{
+        user_id: user.id,
+        document_type: documentId,
+        document_name: documentName,
+        company_data: JSON.parse(JSON.stringify(companyData)),
+        extra_data: JSON.parse(JSON.stringify(extraData)),
+      }]);
+
+      if (error) throw error;
+
+      toast({
+        title: "Document salvat!",
+        description: "Documentul a fost salvat în contul tău.",
+      });
+    } catch (error) {
+      console.error("Error saving document:", error);
+      toast({
+        title: "Eroare",
+        description: "Nu s-a putut salva documentul. Încearcă din nou.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleGeneratePDF = async () => {
     setIsGenerating(true);
     
@@ -75,7 +118,6 @@ const DocumentWizard = ({ documentId, documentName, onBack }: DocumentWizardProp
       const doc = generateDocument(documentId, companyData, extraData);
       
       if (doc) {
-        // Generate filename
         const sanitizedName = documentName
           .replace(/[^a-zA-Z0-9\u0100-\u017F\s]/g, "")
           .replace(/\s+/g, "_");
@@ -109,12 +151,9 @@ const DocumentWizard = ({ documentId, documentName, onBack }: DocumentWizardProp
       const doc = generateDocument(documentId, companyData, extraData);
       
       if (doc) {
-        // Open in new tab for preview
         const pdfBlob = doc.output("blob");
         const pdfUrl = URL.createObjectURL(pdfBlob);
         window.open(pdfUrl, "_blank");
-        
-        // Clean up URL after a delay
         setTimeout(() => URL.revokeObjectURL(pdfUrl), 10000);
       }
     } catch (error) {
@@ -377,7 +416,7 @@ const DocumentWizard = ({ documentId, documentName, onBack }: DocumentWizardProp
                 Documentul PDF final va conține toate clauzele legale necesare.
               </div>
             </div>
-            <div className="flex gap-3 justify-center pt-4">
+            <div className="flex gap-3 justify-center pt-4 flex-wrap">
               <Button 
                 variant="outline" 
                 className="gap-2"
@@ -387,6 +426,17 @@ const DocumentWizard = ({ documentId, documentName, onBack }: DocumentWizardProp
                 {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />}
                 Previzualizare PDF
               </Button>
+              {user && (
+                <Button 
+                  variant="secondary" 
+                  className="gap-2"
+                  onClick={handleSaveDocument}
+                  disabled={isSaving}
+                >
+                  {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  Salvează
+                </Button>
+              )}
               <Button 
                 variant="hero" 
                 className="gap-2"
