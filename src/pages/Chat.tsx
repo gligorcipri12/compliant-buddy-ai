@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect } from "react";
 import Header from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
-import { Send, Bot, User, Sparkles, FileText, Bell, HelpCircle, Loader2 } from "lucide-react";
+import { Send, Bot, User, Sparkles, FileText, Bell, HelpCircle, Loader2, AlertCircle } from "lucide-react";
+import { toast } from "@/hooks/use-toast";
+import ReactMarkdown from "react-markdown";
 
 interface Message {
   id: string;
@@ -10,30 +12,25 @@ interface Message {
   timestamp: Date;
 }
 
+const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/compliance-chat`;
+
 const quickActions = [
   { icon: FileText, label: "Generează document GDPR", action: "Vreau să generez o politică de confidențialitate GDPR pentru firma mea." },
-  { icon: HelpCircle, label: "Întreabă despre TVA", action: "Care sunt pragurile pentru înregistrarea la TVA?" },
-  { icon: Bell, label: "Verifică obligații fiscale", action: "Ce declarații fiscale trebuie să depun luna aceasta?" },
+  { icon: HelpCircle, label: "Întreabă despre TVA", action: "Care sunt pragurile pentru înregistrarea la TVA în România?" },
+  { icon: Bell, label: "Verifică obligații fiscale", action: "Ce declarații fiscale trebuie să depun luna aceasta ca micro-întreprindere?" },
 ];
-
-const sampleResponses: Record<string, string> = {
-  default: "Bună! Sunt ComplianceBot, asistentul tău pentru conformitate legală. Cum te pot ajuta astăzi cu GDPR, TVA, contracte sau obligații fiscale?",
-  gdpr: "Da, conform Regulamentului GDPR, orice entitate care prelucrează date personale trebuie să aibă:\n\n✅ **Politică de confidențialitate** - care să explice ce date colectezi și cum le folosești\n\n✅ **Registru de prelucrare** - document intern cu toate operațiunile de procesare\n\n✅ **Contract GDPR cu angajații** - pentru protecția datelor pe care le accesează\n\nVrei să generez aceste documente pentru tine? Pot crea un pachet complet personalizat pentru firma ta.",
-  tva: "Conform legislației actuale din România, pragurile pentru TVA sunt:\n\n📊 **Plafonul de scutire**: 300.000 RON/an cifră de afaceri\n\nDacă depășești acest plafon, ai **10 zile** pentru înregistrare la TVA.\n\n⚠️ **Atenție**: Anumite activități necesită înregistrare obligatorie, indiferent de cifra de afaceri.\n\nVrei să verific situația specifică a firmei tale?",
-  fiscal: "Pentru luna curentă, iată obligațiile fiscale principale:\n\n📅 **25 ale lunii**:\n- Declarația 100 (impozit pe venit)\n- Declarația 112 (contribuții sociale)\n- Plată TVA (dacă ești plătitor)\n\n📅 **Ultima zi a lunii**:\n- Plată salarii\n\nPot să setez remindere automate pentru aceste deadline-uri. Vrei?",
-};
 
 const Chat = () => {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "1",
       role: "assistant",
-      content: sampleResponses.default,
+      content: "Bună! 👋 Sunt **ComplianceBot**, asistentul tău pentru conformitate legală.\n\nTe pot ajuta cu:\n- 📋 **GDPR** și protecția datelor\n- 💰 **TVA** și fiscalitate\n- 📝 **Contracte** de muncă\n- ⚖️ **Obligații** fiscale\n\nCum te pot ajuta astăzi?",
       timestamp: new Date(),
     },
   ]);
   const [input, setInput] = useState("");
-  const [isTyping, setIsTyping] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -44,22 +41,103 @@ const Chat = () => {
     scrollToBottom();
   }, [messages]);
 
-  const getResponse = (userMessage: string): string => {
-    const lowerMessage = userMessage.toLowerCase();
-    if (lowerMessage.includes("gdpr") || lowerMessage.includes("confidențialitate") || lowerMessage.includes("angajați")) {
-      return sampleResponses.gdpr;
+  const streamChat = async (userMessages: { role: string; content: string }[]) => {
+    const response = await fetch(CHAT_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+      },
+      body: JSON.stringify({ messages: userMessages }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      
+      if (response.status === 429) {
+        throw new Error("Limită de cereri depășită. Te rugăm să încerci din nou mai târziu.");
+      }
+      if (response.status === 402) {
+        throw new Error("Credite insuficiente. Te rugăm să adaugi credite în workspace.");
+      }
+      throw new Error(errorData.error || "Eroare la conectarea cu AI.");
     }
-    if (lowerMessage.includes("tva") || lowerMessage.includes("plafon") || lowerMessage.includes("înregistrare")) {
-      return sampleResponses.tva;
+
+    if (!response.body) {
+      throw new Error("No response body");
     }
-    if (lowerMessage.includes("fiscal") || lowerMessage.includes("declarații") || lowerMessage.includes("obligații")) {
-      return sampleResponses.fiscal;
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let textBuffer = "";
+    let assistantContent = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      
+      textBuffer += decoder.decode(value, { stream: true });
+
+      let newlineIndex: number;
+      while ((newlineIndex = textBuffer.indexOf("\n")) !== -1) {
+        let line = textBuffer.slice(0, newlineIndex);
+        textBuffer = textBuffer.slice(newlineIndex + 1);
+
+        if (line.endsWith("\r")) line = line.slice(0, -1);
+        if (line.startsWith(":") || line.trim() === "") continue;
+        if (!line.startsWith("data: ")) continue;
+
+        const jsonStr = line.slice(6).trim();
+        if (jsonStr === "[DONE]") break;
+
+        try {
+          const parsed = JSON.parse(jsonStr);
+          const content = parsed.choices?.[0]?.delta?.content as string | undefined;
+          if (content) {
+            assistantContent += content;
+            // Update the last assistant message
+            setMessages(prev => {
+              const last = prev[prev.length - 1];
+              if (last?.role === "assistant" && last.id.startsWith("streaming-")) {
+                return prev.map((m, i) => 
+                  i === prev.length - 1 ? { ...m, content: assistantContent } : m
+                );
+              }
+              return prev;
+            });
+          }
+        } catch {
+          // Incomplete JSON, put it back and wait for more data
+          textBuffer = line + "\n" + textBuffer;
+          break;
+        }
+      }
     }
-    return "Înțeleg întrebarea ta. Pot să te ajut cu informații despre GDPR, TVA, contracte de muncă sau obligații fiscale. Ce anume te interesează mai mult?";
+
+    // Final flush
+    if (textBuffer.trim()) {
+      for (let raw of textBuffer.split("\n")) {
+        if (!raw) continue;
+        if (raw.endsWith("\r")) raw = raw.slice(0, -1);
+        if (raw.startsWith(":") || raw.trim() === "") continue;
+        if (!raw.startsWith("data: ")) continue;
+        const jsonStr = raw.slice(6).trim();
+        if (jsonStr === "[DONE]") continue;
+        try {
+          const parsed = JSON.parse(jsonStr);
+          const content = parsed.choices?.[0]?.delta?.content as string | undefined;
+          if (content) {
+            assistantContent += content;
+          }
+        } catch { /* ignore */ }
+      }
+    }
+
+    return assistantContent;
   };
 
   const handleSend = async () => {
-    if (!input.trim()) return;
+    if (!input.trim() || isLoading) return;
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -68,22 +146,49 @@ const Chat = () => {
       timestamp: new Date(),
     };
 
-    setMessages((prev) => [...prev, userMessage]);
-    setInput("");
-    setIsTyping(true);
-
-    // Simulate AI response delay
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-
-    const assistantMessage: Message = {
-      id: (Date.now() + 1).toString(),
+    // Create placeholder for streaming assistant message
+    const streamingMessage: Message = {
+      id: `streaming-${Date.now()}`,
       role: "assistant",
-      content: getResponse(input),
+      content: "",
       timestamp: new Date(),
     };
 
-    setMessages((prev) => [...prev, assistantMessage]);
-    setIsTyping(false);
+    setMessages(prev => [...prev, userMessage, streamingMessage]);
+    setInput("");
+    setIsLoading(true);
+
+    try {
+      // Prepare messages for API (excluding the initial greeting and streaming placeholder)
+      const apiMessages = [...messages.filter(m => m.id !== "1"), userMessage].map(m => ({
+        role: m.role,
+        content: m.content,
+      }));
+
+      const finalContent = await streamChat(apiMessages);
+
+      // Update the streaming message with final content and proper ID
+      setMessages(prev => 
+        prev.map(m => 
+          m.id === streamingMessage.id 
+            ? { ...m, id: `final-${Date.now()}`, content: finalContent } 
+            : m
+        )
+      );
+    } catch (error) {
+      console.error("Chat error:", error);
+      
+      // Remove the streaming message on error
+      setMessages(prev => prev.filter(m => m.id !== streamingMessage.id));
+      
+      toast({
+        title: "Eroare",
+        description: error instanceof Error ? error.message : "Nu s-a putut obține răspunsul.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleQuickAction = (action: string) => {
@@ -105,7 +210,7 @@ const Chat = () => {
               <h1 className="font-semibold text-foreground">ComplianceBot AI</h1>
               <p className="text-sm text-muted-foreground flex items-center gap-1">
                 <span className="w-2 h-2 bg-success rounded-full" />
-                Online • Gata să te ajute
+                Online • Powered by AI
               </p>
             </div>
           </div>
@@ -131,9 +236,15 @@ const Chat = () => {
                       : "chat-bubble-bot"
                   }`}
                 >
-                  <p className="whitespace-pre-line text-sm leading-relaxed">
-                    {message.content}
-                  </p>
+                  {message.role === "assistant" ? (
+                    <div className="prose prose-sm dark:prose-invert max-w-none">
+                      <ReactMarkdown>{message.content || "..."}</ReactMarkdown>
+                    </div>
+                  ) : (
+                    <p className="whitespace-pre-line text-sm leading-relaxed">
+                      {message.content}
+                    </p>
+                  )}
                 </div>
                 {message.role === "user" && (
                   <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center flex-shrink-0">
@@ -143,7 +254,7 @@ const Chat = () => {
               </div>
             ))}
             
-            {isTyping && (
+            {isLoading && messages[messages.length - 1]?.content === "" && (
               <div className="flex gap-3 animate-fade-in">
                 <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center">
                   <Bot className="w-4 h-4 text-accent" />
@@ -188,18 +299,23 @@ const Chat = () => {
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSend()}
+                onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
                 placeholder="Scrie o întrebare despre GDPR, TVA, contracte..."
                 className="flex-1 px-4 py-3 rounded-xl bg-secondary border border-border focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent text-foreground placeholder:text-muted-foreground"
+                disabled={isLoading}
               />
               <Button
                 variant="hero"
                 size="icon"
                 className="w-12 h-12"
                 onClick={handleSend}
-                disabled={!input.trim() || isTyping}
+                disabled={!input.trim() || isLoading}
               >
-                <Send className="w-5 h-5" />
+                {isLoading ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <Send className="w-5 h-5" />
+                )}
               </Button>
             </div>
             <p className="text-xs text-muted-foreground text-center mt-3">
