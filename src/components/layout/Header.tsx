@@ -1,18 +1,27 @@
 import { useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Menu, X, Shield, MessageSquare, FileText, LayoutDashboard } from "lucide-react";
+import { Menu, X, Shield, MessageSquare, FileText, LayoutDashboard, FolderOpen, LogOut } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
 
 const Header = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
+  const { user, signOut } = useAuth();
 
   const navItems = [
     { label: "Acasă", href: "/", icon: null },
     { label: "Chat AI", href: "/chat", icon: MessageSquare },
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
     { label: "Documente", href: "/documents", icon: FileText },
+    ...(user ? [{ label: "Salvate", href: "/saved-documents", icon: FolderOpen }] : []),
   ];
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate("/");
+  };
 
   const isActive = (path: string) => location.pathname === path;
 
@@ -47,12 +56,28 @@ const Header = () => {
 
           {/* Auth Buttons */}
           <div className="hidden md:flex items-center gap-3">
-            <Button variant="ghost" size="sm">
-              Autentificare
-            </Button>
-            <Button variant="hero" size="sm">
-              Încearcă Gratuit
-            </Button>
+            {user ? (
+              <>
+                <span className="text-sm text-muted-foreground">{user.email}</span>
+                <Button variant="ghost" size="sm" onClick={handleSignOut} className="gap-2">
+                  <LogOut className="w-4 h-4" />
+                  Deconectare
+                </Button>
+              </>
+            ) : (
+              <>
+                <Link to="/auth">
+                  <Button variant="ghost" size="sm">
+                    Autentificare
+                  </Button>
+                </Link>
+                <Link to="/auth">
+                  <Button variant="hero" size="sm">
+                    Încearcă Gratuit
+                  </Button>
+                </Link>
+              </>
+            )}
           </div>
 
           {/* Mobile Menu Button */}
@@ -82,12 +107,25 @@ const Header = () => {
                 </Link>
               ))}
               <div className="flex gap-2 pt-4 border-t border-border mt-2">
-                <Button variant="ghost" className="flex-1">
-                  Autentificare
-                </Button>
-                <Button variant="hero" className="flex-1">
-                  Încearcă Gratuit
-                </Button>
+                {user ? (
+                  <Button variant="ghost" className="flex-1 gap-2" onClick={handleSignOut}>
+                    <LogOut className="w-4 h-4" />
+                    Deconectare
+                  </Button>
+                ) : (
+                  <>
+                    <Link to="/auth" className="flex-1" onClick={() => setIsMenuOpen(false)}>
+                      <Button variant="ghost" className="w-full">
+                        Autentificare
+                      </Button>
+                    </Link>
+                    <Link to="/auth" className="flex-1" onClick={() => setIsMenuOpen(false)}>
+                      <Button variant="hero" className="w-full">
+                        Încearcă Gratuit
+                      </Button>
+                    </Link>
+                  </>
+                )}
               </div>
             </nav>
           </div>
