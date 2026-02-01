@@ -117,32 +117,44 @@ export type Database = {
       }
       profiles: {
         Row: {
+          company_address: string | null
           company_cui: string | null
           company_name: string | null
+          company_phone: string | null
+          company_representative: string | null
           created_at: string
           email: string | null
           employee_count: number | null
           id: string
+          onboarding_completed: boolean | null
           updated_at: string
           user_id: string
         }
         Insert: {
+          company_address?: string | null
           company_cui?: string | null
           company_name?: string | null
+          company_phone?: string | null
+          company_representative?: string | null
           created_at?: string
           email?: string | null
           employee_count?: number | null
           id?: string
+          onboarding_completed?: boolean | null
           updated_at?: string
           user_id: string
         }
         Update: {
+          company_address?: string | null
           company_cui?: string | null
           company_name?: string | null
+          company_phone?: string | null
+          company_representative?: string | null
           created_at?: string
           email?: string | null
           employee_count?: number | null
           id?: string
+          onboarding_completed?: boolean | null
           updated_at?: string
           user_id?: string
         }

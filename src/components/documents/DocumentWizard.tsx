@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,13 +11,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { 
-  FileText, Building, Briefcase, Eye, Check, Download, ArrowLeft, Loader2, Save
+  FileText, Building, Briefcase, Eye, Check, Download, ArrowLeft, Loader2, Save, Sparkles
 } from "lucide-react";
 import { documentTemplates, type CompanyData } from "@/lib/pdf/documentTemplates";
 import { generateDocument } from "@/lib/pdf/pdfGenerator";
 import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
+import { useCompanyProfile } from "@/hooks/useCompanyProfile";
 import { supabase } from "@/integrations/supabase/client";
+import { Badge } from "@/components/ui/badge";
 
 interface DocumentWizardProps {
   documentId: string;
@@ -36,6 +38,7 @@ const DocumentWizard = ({ documentId, documentName, onBack }: DocumentWizardProp
   const [currentStep, setCurrentStep] = useState(2);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [hasAutoFilled, setHasAutoFilled] = useState(false);
   const [companyData, setCompanyData] = useState<CompanyData>({
     companyName: "",
     cui: "",
@@ -47,8 +50,29 @@ const DocumentWizard = ({ documentId, documentName, onBack }: DocumentWizardProp
   });
   const [extraData, setExtraData] = useState<Record<string, string>>({});
   const { user } = useAuth();
+  const { formData: profileData, loading: profileLoading } = useCompanyProfile();
 
   const template = documentTemplates[documentId];
+
+  // Auto-fill from company profile when loaded
+  useEffect(() => {
+    if (!profileLoading && profileData && !hasAutoFilled) {
+      const hasProfileData = profileData.companyName || profileData.cui;
+      
+      if (hasProfileData) {
+        setCompanyData({
+          companyName: profileData.companyName || "",
+          cui: profileData.cui || "",
+          address: profileData.address || "",
+          employees: profileData.employeeCount || "",
+          representative: profileData.representative || "",
+          email: profileData.email || "",
+          phone: profileData.phone || "",
+        });
+        setHasAutoFilled(true);
+      }
+    }
+  }, [profileData, profileLoading, hasAutoFilled]);
 
   const handleCompanyChange = (field: keyof CompanyData, value: string) => {
     setCompanyData(prev => ({ ...prev, [field]: value }));
@@ -275,9 +299,27 @@ const DocumentWizard = ({ documentId, documentName, onBack }: DocumentWizardProp
       <div className="min-h-[300px]">
         {currentStep === 2 && (
           <div className="space-y-4 animate-fade-in">
-            <h3 className="text-lg font-semibold text-foreground mb-4">
-              Date despre firmă
-            </h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-foreground">
+                Date despre firmă
+              </h3>
+              {hasAutoFilled && (
+                <Badge variant="secondary" className="gap-1">
+                  <Sparkles className="w-3 h-3" />
+                  Completat automat
+                </Badge>
+              )}
+            </div>
+            
+            {hasAutoFilled && (
+              <div className="p-3 bg-accent/5 rounded-lg border border-accent/20 flex items-start gap-3 mb-4">
+                <Sparkles className="w-5 h-5 text-accent mt-0.5 flex-shrink-0" />
+                <p className="text-sm text-muted-foreground">
+                  Datele firmei au fost completate automat din profilul tău. Poți să le modifici dacă e nevoie.
+                </p>
+              </div>
+            )}
+            
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="companyName">Denumire firmă *</Label>
