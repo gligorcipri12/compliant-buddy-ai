@@ -25,6 +25,9 @@ export interface Deadline {
   is_completed: boolean;
 }
 
+// Re-export types for external use
+export type { ComplianceItem as ComplianceItemType };
+
 const DEFAULT_CATEGORIES = [
   {
     category: "GDPR",
