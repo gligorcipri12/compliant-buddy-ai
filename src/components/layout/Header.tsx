@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Menu, X, Shield, MessageSquare, FileText, LayoutDashboard, FolderOpen, LogOut } from "lucide-react";
+import { Menu, X, Shield, MessageSquare, FileText, LayoutDashboard, FolderOpen, LogOut, Building2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import EditCompanyDialog from "@/components/settings/EditCompanyDialog";
 
 const Header = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -58,6 +59,14 @@ const Header = () => {
           <div className="hidden md:flex items-center gap-3">
             {user ? (
               <>
+                <EditCompanyDialog
+                  trigger={
+                    <Button variant="ghost" size="sm" className="gap-2">
+                      <Building2 className="w-4 h-4" />
+                      Firmă
+                    </Button>
+                  }
+                />
                 <span className="text-sm text-muted-foreground">{user.email}</span>
                 <Button variant="ghost" size="sm" onClick={handleSignOut} className="gap-2">
                   <LogOut className="w-4 h-4" />
